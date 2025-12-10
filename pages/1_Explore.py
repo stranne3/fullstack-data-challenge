@@ -196,13 +196,138 @@ if len(selected_fruits) > 0:
         )
         
         st.plotly_chart(fig_hist, use_container_width=True)
-        
-        # Show when values are zero
-        st.subheader("Zero Value Analysis")
-        
-        zero_analysis = data_api.calculate_zero_statistics(merged_data)
-        st.dataframe(zero_analysis)
     else:
         st.info("No fruits match the selected filters.")
 else:
     st.warning("Please select at least one fruit to display the chart.")
+
+# ============================================================================
+# ZERO-VALUE PATTERN DETECTION
+# ============================================================================
+
+st.header("Zero-Value Pattern Detection")
+
+st.markdown("""
+Understanding when and how fruits go to zero is critical for prediction.
+""")
+
+if len(selected_fruits) > 0:
+    # Get all timeseries data for selected fruits
+    merged_all = data_api.get_timeseries_for_fruits(
+        timeseries_df,
+        datasource_df,
+        selected_fruits
+    )
+    
+    # Analyze zero patterns
+    zero_patterns = data_api.analyze_zero_patterns(merged_all)
+    
+    st.subheader("Zero Pattern Statistics")
+    st.dataframe(zero_patterns)
+    
+    st.markdown("""
+    **What this shows:**
+    - **Zero Count**: How many data points are zero
+    - **Zero %**: Percentage of all data points that are zero
+    - **Zero Sequences**: How many separate sequences of consecutive zeros
+    - **Avg Seq Length**: Average length of a zero sequence (in days)
+    - **Max Seq Length**: Longest zero sequence observed
+    """)
+    
+    # Visualize zero sequence lengths
+    st.subheader("Zero Sequence Patterns")
+    
+    fig_zero = px.bar(
+        zero_patterns,
+        x='Fruit',
+        y=['Zero Count', 'Zero Sequences'],
+        barmode='group',
+        title='Zero Occurrences and Sequences per Fruit',
+        labels={'value': 'Count', 'variable': 'Metric'}
+    )
+    st.plotly_chart(fig_zero, use_container_width=True)
+
+else:
+    st.info("Select fruits above to see zero-value patterns.")
+
+# ============================================================================
+# CORRELATION ANALYSIS
+# ============================================================================
+
+st.header("Correlation Analysis")
+
+st.markdown("""
+Which fruits move together? Correlation analysis reveals dependencies and relationships.
+""")
+
+if len(selected_fruits) > 1:
+    # Get all timeseries data
+    merged_all = data_api.get_timeseries_for_fruits(
+        timeseries_df,
+        datasource_df,
+        selected_fruits
+    )
+    
+    # Calculate correlation matrix
+    corr_matrix = data_api.calculate_correlation_matrix(merged_all)
+    
+    st.subheader("Correlation Matrix")
+    
+    st.markdown("""
+    **Interpretation:**
+    - **+1.0**: Perfect positive correlation (move together)
+    - **0.0**: No correlation (independent)
+    - **-1.0**: Perfect negative correlation (move oppositely)
+    """)
+    
+    # Display as heatmap using scatter-based approach
+    import plotly.graph_objects as go
+    
+    # Create a simple scatter-based heatmap with clear text
+    fig_heatmap = go.Figure(data=go.Heatmap(
+        z=corr_matrix.values,
+        x=corr_matrix.columns,
+        y=corr_matrix.index,
+        colorscale='RdBu',
+        zmid=0,
+        zmin=-1,
+        zmax=1,
+        text=corr_matrix.values.round(2),
+        texttemplate='%{text:.2f}',
+        textfont={"size": 12},
+        hovertemplate='%{y} vs %{x}<br>Correlation: %{z:.3f}<extra></extra>'
+    ))
+    
+    fig_heatmap.update_layout(
+        title='Fruit Correlation Heatmap',
+        height=650,
+        width=750,
+        xaxis={'tickangle': -45},
+        yaxis={'autorange': 'reversed'},
+        margin={'b': 150}
+    )
+    
+    st.plotly_chart(fig_heatmap, use_container_width=True)
+    
+    st.subheader("Correlation Matrix (Table)")
+    st.dataframe(corr_matrix.round(3))
+    
+    # Find strongest correlations
+    st.subheader("Strongest Relationships")
+    
+    # Get upper triangle of correlation matrix (avoid duplicates and self-correlation)
+    corr_pairs = []
+    for i in range(len(corr_matrix.columns)):
+        for j in range(i+1, len(corr_matrix.columns)):
+            corr_pairs.append({
+                'Fruit 1': corr_matrix.columns[i],
+                'Fruit 2': corr_matrix.columns[j],
+                'Correlation': corr_matrix.iloc[i, j]
+            })
+    
+    corr_df = pd.DataFrame(corr_pairs).sort_values('Correlation', ascending=False, key=abs)
+    
+    st.dataframe(corr_df)
+    
+else:
+    st.info("Select at least 2 fruits to see correlation analysis.")

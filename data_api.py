@@ -8,6 +8,15 @@ Handles all database operations and data processing for the Fruit Analysis Dashb
 
 import sqlite3
 import pandas as pd
+import warnings
+
+# Suppress Prophet and other library warnings
+warnings.filterwarnings('ignore')
+
+try:
+    from prophet import Prophet
+except ImportError:
+    Prophet = None
 
 
 def load_data(db_path="db.sqlite"):
@@ -23,17 +32,17 @@ def load_data(db_path="db.sqlite"):
             - timeseries_df: DataFrame with time-series data (datasource_id, timestamp, value)
     """
     # Connect to the database
-    conn = sqlite3.connect(db_path)
+    connection = sqlite3.connect(db_path)
     
     # Load the datasource table (fruit metadata with x, y coordinates)
-    datasource_df = pd.read_sql_query("SELECT * FROM datasource", conn)
+    datasource_df = pd.read_sql_query("SELECT * FROM datasource", connection)
     
     # Load the timeseries table (time-series values for each fruit)
-    timeseries_df = pd.read_sql_query("SELECT * FROM timeseries", conn)
+    timeseries_df = pd.read_sql_query("SELECT * FROM timeseries", connection)
     
     # Close the connection
-    conn.close()
-    
+    connection.close()
+
     return datasource_df, timeseries_df
 
 
@@ -152,3 +161,299 @@ def get_all_fruit_names(datasource_df):
         list: List of all fruit names
     """
     return datasource_df['name'].tolist()
+
+
+def analyze_zero_patterns(timeseries_data):
+    """
+    Detailed analysis of zero-value patterns for each fruit.
+    
+    Args:
+        timeseries_data (pd.DataFrame): Timeseries data with 'name', 'timestamp', 'value' columns
+    
+    Returns:
+        pd.DataFrame: Detailed zero pattern statistics
+    """
+    timeseries_data = timeseries_data.sort_values('timestamp')
+    
+    results = []
+    
+    for fruit in timeseries_data['name'].unique():
+        fruit_data = timeseries_data[timeseries_data['name'] == fruit].sort_values('timestamp')
+        
+        # Total and zero counts
+        total = len(fruit_data)
+        zero_count = (fruit_data['value'] == 0).sum()
+        
+        # Find consecutive zero sequences
+        fruit_data_reset = fruit_data.reset_index(drop=True)
+        is_zero = (fruit_data_reset['value'] == 0).values
+        
+        # Detect sequences of zeros
+        zero_sequences = []
+        in_sequence = False
+        seq_start = 0
+        
+        for idx, val in enumerate(is_zero):
+            if val and not in_sequence:
+                in_sequence = True
+                seq_start = idx
+            elif not val and in_sequence:
+                in_sequence = False
+                zero_sequences.append(idx - seq_start)
+        
+        if in_sequence:
+            zero_sequences.append(len(is_zero) - seq_start)
+        
+        # Calculate statistics
+        avg_sequence_length = sum(zero_sequences) / len(zero_sequences) if zero_sequences else 0
+        max_sequence_length = max(zero_sequences) if zero_sequences else 0
+        num_sequences = len(zero_sequences)
+        
+        results.append({
+            'Fruit': fruit,
+            'Total Points': total,
+            'Zero Count': zero_count,
+            'Zero %': round(zero_count / total * 100, 2) if total > 0 else 0,
+            'Zero Sequences': num_sequences,
+            'Avg Seq Length': round(avg_sequence_length, 2),
+            'Max Seq Length': max_sequence_length
+        })
+    
+    return pd.DataFrame(results)
+
+
+def calculate_correlation_matrix(timeseries_data):
+    """
+    Calculate correlation matrix between fruits based on their values.
+    
+    Args:
+        timeseries_data (pd.DataFrame): Timeseries data with 'name', 'timestamp', 'value' columns
+    
+    Returns:
+        pd.DataFrame: Correlation matrix (fruits x fruits)
+    """
+    # Pivot to get fruits as columns, timestamps as rows
+    pivot_data = timeseries_data.pivot_table(
+        index='timestamp',
+        columns='name',
+        values='value'
+    )
+    
+    # Calculate correlation
+    correlation = pivot_data.corr()
+    
+    return correlation
+
+
+def validate_forecast_data(timeseries_data, fruit_name):
+    """
+    Validate data before forecasting to provide clear error messages.
+    
+    Args:
+        timeseries_data (pd.DataFrame): Timeseries data
+        fruit_name (str): Fruit name to validate
+    
+    Returns:
+        tuple: (is_valid, error_message, metadata)
+            - is_valid (bool): Whether data is valid for forecasting
+            - error_message (str): Human-readable error if invalid
+            - metadata (dict): Data statistics if valid
+    """
+    try:
+        # Filter data for specific fruit
+        fruit_data = timeseries_data[timeseries_data['name'] == fruit_name].copy()
+        
+        if len(fruit_data) == 0:
+            return False, f"No data found for fruit: {fruit_name}", {}
+        
+        fruit_data = fruit_data.sort_values('timestamp')
+        
+        # Check total data points
+        total_count = len(fruit_data)
+        if total_count < 20:
+            return False, f"Insufficient data: only {total_count} points (need ≥20)", {}
+        
+        # Check non-zero data
+        non_zero_count = (fruit_data['value'] > 0).sum()
+        if non_zero_count == 0:
+            return False, f"No non-zero values found. Cannot forecast when fruit is always 0.", {}
+        
+        if non_zero_count < 10:
+            return False, f"Insufficient non-zero data: only {non_zero_count} points (need ≥10)", {}
+        
+        # Check for NaN values
+        nan_count = fruit_data['value'].isna().sum()
+        if nan_count == total_count:
+            return False, "All values are NaN - cannot forecast", {}
+        
+        # Check value range
+        non_zero_values = fruit_data[fruit_data['value'] > 0]['value']
+        min_val = non_zero_values.min()
+        max_val = non_zero_values.max()
+        
+        if min_val == max_val:
+            return False, f"All non-zero values are identical ({min_val}). Cannot establish trend.", {}
+        
+        # Calculate metrics
+        zero_pct = (total_count - non_zero_count) / total_count * 100
+        date_range = (fruit_data['timestamp'].max() - fruit_data['timestamp'].min()).days
+        
+        metadata = {
+            'total_points': total_count,
+            'non_zero_points': non_zero_count,
+            'zero_percentage': round(zero_pct, 1),
+            'date_range_days': date_range,
+            'value_min': round(min_val, 2),
+            'value_max': round(max_val, 2),
+            'value_mean': round(non_zero_values.mean(), 2)
+        }
+        
+        return True, "", metadata
+        
+    except Exception as e:
+        return False, f"Error validating data: {str(e)}", {}
+
+
+def forecast_with_prophet(timeseries_data, fruit_name, periods=30):
+    """
+    Forecast future values for a fruit using Prophet with zero-value handling.
+    
+    This method handles the categorical nature of the data (0 vs non-zero) by:
+    1. Forecasting non-zero values using Prophet on filtered data
+    2. Estimating probability of non-zero values (fruit being "active")
+    3. Showing THREE scenarios:
+       - Pessimistic: mostly zeros (using historical zero probability)
+       - Realistic: blend of on/off with trend (weighted by active probability)
+       - Optimistic: assuming fruit stays "active"
+    
+    Args:
+        timeseries_data (pd.DataFrame): Timeseries data with 'name', 'timestamp', 'value'
+        fruit_name (str): Name of the fruit to forecast
+        periods (int): Number of days to forecast
+    
+    Returns:
+        tuple: (forecast_df, model, error_msg) 
+            - forecast_df: Forecast dataframe or None if error
+            - model: Trained Prophet model or None if error
+            - error_msg: Error message if failed, empty string if successful
+    """
+    error_msg = ""
+    
+    try:
+        from prophet import Prophet
+    except ImportError:
+        return None, None, "Prophet library not installed"
+    
+    try:
+        # Validate input data first
+        is_valid, validation_error, metadata = validate_forecast_data(timeseries_data, fruit_name)
+        if not is_valid:
+            return None, None, validation_error
+        
+        # Filter data for specific fruit
+        fruit_data = timeseries_data[timeseries_data['name'] == fruit_name].copy()
+        fruit_data = fruit_data.sort_values('timestamp')
+        
+        # Calculate activity probability
+        active_count = (fruit_data['value'] > 0).sum()
+        total_count = len(fruit_data)
+        active_probability = active_count / total_count if total_count > 0 else 0
+        
+        # Separate zero and non-zero data
+        non_zero_data = fruit_data[fruit_data['value'] > 0].copy()
+        
+        # Prepare data for Prophet
+        prophet_data = pd.DataFrame({
+            'ds': pd.to_datetime(non_zero_data['timestamp']),
+            'y': non_zero_data['value']
+        })
+        
+        # Remove rows with NaN values
+        prophet_data = prophet_data.dropna()
+        
+        if len(prophet_data) < 5:
+            return None, None, f"Not enough valid data points after cleaning ({len(prophet_data)} < 5)"
+        
+        # Initialize and fit Prophet model with error handling
+        try:
+            model = Prophet(
+                yearly_seasonality='auto',
+                weekly_seasonality='auto',
+                daily_seasonality='auto',
+                interval_width=0.95,
+                changepoint_prior_scale=0.01,
+                seasonality_prior_scale=10.0,
+                seasonality_mode='additive'
+            )
+            
+            # Suppress Prophet's verbose output
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                model.fit(prophet_data)
+                
+        except Exception as e:
+            return None, None, f"Prophet model training failed: {str(e)}"
+        
+        # Create future dataframe
+        try:
+            future = model.make_future_dataframe(periods=periods)
+        except Exception as e:
+            return None, None, f"Error creating forecast periods: {str(e)}"
+        
+        # Generate forecast
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                forecast = model.predict(future)
+        except Exception as e:
+            return None, None, f"Forecast generation failed: {str(e)}"
+        
+        # Post-process forecast to enforce constraints
+        forecast['yhat'] = forecast['yhat'].clip(lower=0)
+        forecast['yhat_lower'] = forecast['yhat_lower'].clip(lower=0)
+        forecast['yhat_upper'] = forecast['yhat_upper'].clip(lower=0)
+        
+        # Add activity information and scenarios
+        forecast['active_probability'] = active_probability
+        forecast['pessimistic'] = forecast['yhat'] * (1 - active_probability)
+        forecast['realistic'] = forecast['yhat'] * active_probability
+        forecast['optimistic'] = forecast['yhat']
+        
+        return forecast, model, ""
+        
+    except Exception as e:
+        return None, None, f"Unexpected error during forecasting: {str(e)}"
+
+
+def get_forecast_summary(forecast_df):
+    """
+    Extract key statistics from Prophet forecast with scenario analysis.
+    
+    Args:
+        forecast_df (pd.DataFrame): Prophet forecast dataframe with scenarios
+    
+    Returns:
+        dict: Summary statistics including three scenarios and metadata
+    """
+    if forecast_df is None or len(forecast_df) == 0:
+        return {}
+    
+    # Get only future dates (exclude historical)
+    try:
+        future_forecast = forecast_df[forecast_df['ds'] > forecast_df['ds'].quantile(0.95)]
+        
+        if len(future_forecast) == 0:
+            future_forecast = forecast_df.tail(7)  # Fallback to last 7 rows
+        
+        active_prob = future_forecast['active_probability'].iloc[0] if 'active_probability' in future_forecast.columns else 0
+        
+        return {
+            'optimistic_mean': round(future_forecast['optimistic'].mean(), 2) if 'optimistic' in future_forecast.columns else 0,
+            'realistic_mean': round(future_forecast['realistic'].mean(), 2) if 'realistic' in future_forecast.columns else 0,
+            'pessimistic_mean': round(future_forecast['pessimistic'].mean(), 2) if 'pessimistic' in future_forecast.columns else 0,
+            'active_probability': round(active_prob, 3),
+            'forecast_range': (round(future_forecast['yhat'].min(), 2), round(future_forecast['yhat'].max(), 2)),
+            'trend': 'up' if future_forecast['yhat'].iloc[-1] > future_forecast['yhat'].iloc[0] else 'down'
+        }
+    except Exception as e:
+        return {}
