@@ -8,6 +8,8 @@
     _$ source .venv/bin/activate_
 3. Install requirements
     _$ pip3 install -r requirements.txt_
+4. Run app
+    _$ streamlit run 0\_Home.py_
 
 
 ## Project Description
