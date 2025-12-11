@@ -34,6 +34,7 @@ Future prediction of consumtion.
 Uses Prophet (ML time series framwork), by Meta.
 Shows forecast with the ability to compare to "reality" to ponder over "realistic or not".
 Day by day forcasts, good for planning.
+Zero value prediciton. Since prophet dont like non-continuos 
 
 ## Tips below
 
@@ -48,12 +49,13 @@ Day by day forcasts, good for planning.
 - In data control 
 - Plain text input cant insert code (minor highlight)
 - No below 0 predictions, values decrease exponatially 
+- Modularity -> Scalable + Reusable code
 
 ## Problems & Improvements
 High zero percentage makes for bad forecasts, ex. grape.
 Restricted timespan of observations.
 No ability to add more data to DB. Would be good for future improvements.
-Prophet is not great for non-continous data. The On/Off(zero or non-zero) behaviour is difficult to interpret.
+Prophet is not great for non-continuous data. The On/Off(zero or non-zero) behaviour is difficult to interpret.
 Web server to host application
 
 

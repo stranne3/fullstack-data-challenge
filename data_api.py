@@ -536,7 +536,8 @@ def predict_zero_values(timeseries_data, fruit_name, periods=30):
     try:
         # Filter data for specific fruit
         fruit_data = timeseries_data[timeseries_data['name'] == fruit_name].copy()
-        
+
+        # Control input data
         if len(fruit_data) < 20:
             return None, "Not enough historical data (need ≥20 points)"
         
