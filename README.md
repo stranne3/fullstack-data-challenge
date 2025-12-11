@@ -2,13 +2,13 @@
 
 ## Installation
 
-1. (Recommended step) Create virtual environment
-    _$ python -m venv .venv_
-2.  Activate virtual environment
+1. (Recommended step) Create virtual environment \n
+    **_$ python -m venv .venv_**
+2.  Activate virtual environment \n
     _$ source .venv/bin/activate_
-3. Install requirements
+3. Install requirements \n
     _$ pip3 install -r requirements.txt_
-4. Run app
+4. Run app \n
     _$ streamlit run 0\_Home.py_
 
 
