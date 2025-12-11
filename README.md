@@ -56,6 +56,6 @@ High zero percentage makes for bad forecasts, ex. grape.
 Restricted timespan of observations.
 No ability to add more data to DB. Would be good for future improvements.
 Prophet is not great for non-continuous data. The On/Off(zero or non-zero) behaviour is difficult to interpret.
-Web server to host application
+Streamlit Cloud would be next step.
 
 
