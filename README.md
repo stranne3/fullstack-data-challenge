@@ -2,6 +2,8 @@
 
 ## Installation
 
+**NOTE**
+**following steps are only viable for Linux(/Mac)**
 1. (Recommended step) Create virtual environment <br>
     _$ python -m venv .venv_
 2.  Activate virtual environment <br>
