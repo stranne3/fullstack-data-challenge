@@ -163,6 +163,60 @@ def get_all_fruit_names(datasource_df):
     return datasource_df['name'].tolist()
 
 
+def calculate_fruit_statistics(datasource_df, timeseries_df):
+    """
+    Calculate comprehensive statistics for all fruits.
+    
+    Args:
+        datasource_df (pd.DataFrame): Datasource data with fruit metadata
+        timeseries_df (pd.DataFrame): Timeseries data with values
+    
+    Returns:
+        pd.DataFrame: Statistics table with columns:
+            - Fruit: Fruit name
+            - Total Points: Number of measurements
+            - Non-Zero Points: Active measurements
+            - Zero %: Percentage of zero values
+            - Min Value: Minimum non-zero value
+            - Max Value: Maximum non-zero value
+            - Mean Value: Average non-zero value
+            - Std Dev: Standard deviation of non-zero values
+    """
+    fruit_stats_list = []
+    
+    for fruit_id in datasource_df['id'].unique():
+        fruit_name = datasource_df[datasource_df['id'] == fruit_id]['name'].values[0]
+        fruit_ts = timeseries_df[timeseries_df['datasource_id'] == fruit_id]
+        
+        total_points = len(fruit_ts)
+        zero_count = (fruit_ts['value'] == 0).sum()
+        non_zero_count = total_points - zero_count
+        
+        if non_zero_count > 0:
+            non_zero_values = fruit_ts[fruit_ts['value'] > 0]['value']
+            min_val = non_zero_values.min()
+            max_val = non_zero_values.max()
+            mean_val = non_zero_values.mean()
+            std_val = non_zero_values.std()
+        else:
+            min_val = max_val = mean_val = std_val = 0
+        
+        zero_pct = (zero_count / total_points * 100) if total_points > 0 else 0
+        
+        fruit_stats_list.append({
+            'Fruit': fruit_name,
+            'Total Points': total_points,
+            'Non-Zero Points': non_zero_count,
+            'Zero %': f"{zero_pct:.1f}%",
+            'Min Value': f"{min_val:.2f}",
+            'Max Value': f"{max_val:.2f}",
+            'Mean Value': f"{mean_val:.2f}",
+            'Std Dev': f"{std_val:.2f}"
+        })
+    
+    return pd.DataFrame(fruit_stats_list)
+
+
 def analyze_zero_patterns(timeseries_data):
     """
     Detailed analysis of zero-value patterns for each fruit.

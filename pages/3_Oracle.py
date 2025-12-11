@@ -245,3 +245,11 @@ if run_forecast:
 
 else:
     st.info("Click 'Run Forecast' to generate predictions for the selected fruit.")
+
+
+# For comparison with forecast
+fruit_stats_df = data_api.calculate_fruit_statistics(datasource_df[datasource_df['name'] == fruit_to_forecast], timeseries_df)
+
+st.subheader(f"{fruit_to_forecast} Statistics")
+st.dataframe(fruit_stats_df, use_container_width=True, hide_index=True)
+
