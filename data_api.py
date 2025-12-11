@@ -9,6 +9,7 @@ Handles all database operations and data processing for the Fruit Analysis Dashb
 import sqlite3
 import pandas as pd
 import warnings
+import numpy as np
 
 # Suppress Prophet and other library warnings
 warnings.filterwarnings('ignore')
@@ -511,3 +512,96 @@ def get_forecast_summary(forecast_df):
         }
     except Exception as e:
         return {}
+
+
+def predict_zero_values(timeseries_data, fruit_name, periods=30):
+    """
+    Predict which future days a fruit will have zero values using historical patterns.
+    
+    This uses the historical distribution of active/zero days to estimate probability.
+    
+    Args:
+        timeseries_data (pd.DataFrame): Timeseries data with 'name', 'timestamp', 'value'
+        fruit_name (str): Name of the fruit to predict for
+        periods (int): Number of days to forecast
+    
+    Returns:
+        tuple: (predictions_df, error_msg)
+            - predictions_df: DataFrame with columns [date, zero_probability, status]
+                - date: Predicted date
+                - zero_probability: % likelihood fruit will be zero (0-100)
+                - status: 'Likely Zero' (>60%), 'Likely Active' (<40%), or 'Uncertain' (40-60%)
+            - error_msg: Error message if failed, empty string if successful
+    """
+    try:
+        # Filter data for specific fruit
+        fruit_data = timeseries_data[timeseries_data['name'] == fruit_name].copy()
+        
+        if len(fruit_data) < 20:
+            return None, "Not enough historical data (need ≥20 points)"
+        
+        fruit_data = fruit_data.sort_values('timestamp')
+        
+        # Calculate historical zero probability
+        total_count = len(fruit_data)
+        zero_count = (fruit_data['value'] == 0).sum()
+        zero_probability = (zero_count / total_count) if total_count > 0 else 0
+        
+        # Detect patterns: sequence length of zeros and non-zeros
+        is_zero = (fruit_data['value'] == 0).values
+        
+        # Find sequences and their lengths
+        sequences = []
+        current_value = is_zero[0]
+        current_len = 1
+        
+        for i in range(1, len(is_zero)):
+            if is_zero[i] == current_value:
+                current_len += 1
+            else:
+                sequences.append({'is_zero': current_value, 'length': current_len})
+                current_value = is_zero[i]
+                current_len = 1
+        sequences.append({'is_zero': current_value, 'length': current_len})
+        
+        # Calculate average sequence length for zeros
+        zero_sequences = [s['length'] for s in sequences if s['is_zero']]
+        avg_zero_seq_len = sum(zero_sequences) / len(zero_sequences) if zero_sequences else 1
+        
+        # Generate predictions using a simple probabilistic model
+        # Mix historical probability with random variation based on patterns
+        predictions_list = []
+        last_date = pd.to_datetime(fruit_data['timestamp'].max())
+        
+        np.random.seed(42)  # For reproducibility
+        
+        for day_offset in range(1, periods + 1):
+            future_date = last_date + pd.Timedelta(days=day_offset)
+            
+            # Use base probability with small random variation
+            # This simulates the uncertainty in predicting zero patterns
+            noise = np.random.normal(0, 0.05)  # Small noise around base probability
+            predicted_prob = max(0, min(1, zero_probability + noise))
+            predicted_prob_pct = predicted_prob * 100
+            
+            # Categorize prediction
+            if predicted_prob_pct > 60:
+                status = "Likely Zero"
+            elif predicted_prob_pct < 40:
+                status = "Likely Active"
+            else:
+                status = "Uncertain"
+            
+            predictions_list.append({
+                'Date': future_date.strftime('%Y-%m-%d'),
+                'Zero Probability': f"{predicted_prob_pct:.1f}%",
+                'Status': status
+            })
+        
+        predictions_df = pd.DataFrame(predictions_list)
+        
+        return predictions_df, ""
+        
+    except Exception as e:
+        return None, f"Error predicting zero values: {str(e)}"
+

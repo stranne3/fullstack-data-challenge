@@ -237,6 +237,83 @@ if run_forecast:
                         forecast_table = forecast_table.round(2)
                         
                         st.dataframe(forecast_table, use_container_width=True)
+                        
+                        # ============================================================
+                        # AUTO-RUN ZERO-VALUE PREDICTION WITH SAME FRUIT & PERIOD
+                        # ============================================================
+                        st.divider()
+                        st.subheader("Zero-Value Predictions (Same Fruit & Period)")
+                        
+                        # Run zero prediction automatically
+                        zero_predictions_df, zero_error_msg = data_api.predict_zero_values(
+                            fruit_data,
+                            fruit_to_forecast,
+                            periods=forecast_periods
+                        )
+                        
+                        if zero_predictions_df is not None and zero_error_msg == "":
+                            st.success(f"Zero predictions generated for {fruit_to_forecast}!")
+                            
+                            # Create visualization of predictions
+                            prediction_colors = {
+                                'Likely Zero': '#d62728',      # Red
+                                'Likely Active': '#2ca02c',    # Green
+                                'Uncertain': '#ff7f0e'         # Orange
+                            }
+                            
+                            # Convert percentage strings to floats for plotting
+                            zero_probs = zero_predictions_df['Zero Probability'].str.rstrip('%').astype(float)
+                            colors = [prediction_colors[status] for status in zero_predictions_df['Status']]
+                            
+                            fig_zero = go.Figure()
+                            
+                            fig_zero.add_trace(go.Bar(
+                                x=zero_predictions_df['Date'],
+                                y=zero_probs,
+                                marker_color=colors,
+                                name='Zero Probability',
+                                hovertemplate='<b>%{x}</b><br>Zero Probability: %{y:.1f}%<extra></extra>'
+                            ))
+                            
+                            # Add threshold lines
+                            fig_zero.add_hline(y=60, line_dash="dash", line_color="red", 
+                                             annotation_text="Likely Zero (60%)", annotation_position="right")
+                            fig_zero.add_hline(y=40, line_dash="dash", line_color="green",
+                                             annotation_text="Likely Active (40%)", annotation_position="right")
+                            
+                            fig_zero.update_layout(
+                                title=f'{fruit_to_forecast} - Probability of Zero Values',
+                                xaxis_title='Date',
+                                yaxis_title='Zero Probability (%)',
+                                height=400,
+                                template='plotly_white',
+                                showlegend=False
+                            )
+                            
+                            st.plotly_chart(fig_zero, use_container_width=True)
+                            
+                            # Display prediction table
+                            st.subheader("Zero Prediction Details")
+                            st.dataframe(zero_predictions_df, use_container_width=True, hide_index=True)
+                            
+                            # Summary statistics
+                            st.subheader("Zero Prediction Summary")
+                            summary_col1, summary_col2, summary_col3 = st.columns(3)
+                            
+                            likely_zero = len(zero_predictions_df[zero_predictions_df['Status'] == 'Likely Zero'])
+                            likely_active = len(zero_predictions_df[zero_predictions_df['Status'] == 'Likely Active'])
+                            uncertain = len(zero_predictions_df[zero_predictions_df['Status'] == 'Uncertain'])
+                            
+                            with summary_col1:
+                                st.metric("Likely Zero Days", likely_zero)
+                            
+                            with summary_col2:
+                                st.metric("Likely Active Days", likely_active)
+                            
+                            with summary_col3:
+                                st.metric("Uncertain Days", uncertain)
+                        else:
+                            st.warning(f"Zero prediction failed: {zero_error_msg if zero_error_msg else 'Unknown error'}")
                     else:
                         st.error(f"Forecast failed: {error_msg if error_msg else 'Unknown error'}")
         except Exception as e:
@@ -247,9 +324,18 @@ else:
     st.info("Click 'Run Forecast' to generate predictions for the selected fruit.")
 
 
-# For comparison with forecast
-fruit_stats_df = data_api.calculate_fruit_statistics(datasource_df[datasource_df['name'] == fruit_to_forecast], timeseries_df)
+# ============================================================================
+# FRUIT STATISTICS
+# ============================================================================
 
-st.subheader(f"{fruit_to_forecast} Statistics")
+st.divider()
+st.subheader(f"Statistics for {fruit_to_forecast if run_forecast else 'Selected Fruit'}")
+
+# Use the fruit from forecast if available, otherwise show a placeholder
+selected_fruit = fruit_to_forecast if run_forecast else data_api.get_all_fruit_names(datasource_df)[0]
+fruit_stats_df = data_api.calculate_fruit_statistics(
+    datasource_df[datasource_df['name'] == selected_fruit], 
+    timeseries_df
+)
+
 st.dataframe(fruit_stats_df, use_container_width=True, hide_index=True)
-
