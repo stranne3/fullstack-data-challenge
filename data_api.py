@@ -167,6 +167,7 @@ def get_all_fruit_names(datasource_df):
 def calculate_fruit_statistics(datasource_df, timeseries_df):
     """
     Calculate comprehensive statistics for all fruits.
+    Pandas operations.
     
     Args:
         datasource_df (pd.DataFrame): Datasource data with fruit metadata
